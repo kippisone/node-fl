@@ -161,5 +161,196 @@ module.exports = (function() {
         }
     };
 
+    /**
+     * Scans a directory and returns all dirs and files.
+     * Calls a callback function and passes an array of all items
+     *
+     * item: {
+     *     name: /absolute/filename.txt
+     *     relative: relative/path/from/start/dir.txt
+     *     isDir: false
+     * }
+     *
+     * Options:
+     *
+     * Name | Default | Description
+     * -----------------------------
+     * skipDirs | false | Skip all dirs
+     * skipFiles | false | Skip all files
+     * ignore |  | Array of files and dirs to be ignored
+     *     
+     * @param  {[type]}   dir      [description]
+     * @param  {[type]}   opts     [description]
+     * @param  {Function} callback [description]
+     */
+    fl.scanDir = function(dir, match, opts, callback) {
+        var result = [];
+
+        var self = this;
+
+        if (typeof match === 'function') {
+            callback = match;
+            opts = {};
+            match = null;
+        }
+        else if (typeof match === 'object' && !match.hasOwnProperty('inc')) {
+            callback = opts;
+            opts = match;
+            match = null;
+        } else if (typeof opts === 'function') {
+            callback = opts;
+            opts = {};
+        }
+
+        opts = opts || {};
+        var startDir = opts.rootDir || dir;
+        opts.rootDir = startDir;
+
+        if (match && typeof match === 'string') {
+            match = this.getFileReg(match);
+        }
+
+        opts.skipDirs = opts.skipDirs || false;
+        opts.skipFiles = opts.skipFiles || false;
+
+        if (opts.ignore && opts.ignore instanceof RegExp) {
+            opts.ignore = {
+                inc: opts.ignore
+            };
+        }
+        else if (opts.ignore && typeof opts.ignore !== 'object') {
+            opts.ignore = fl.getFileReg(opts.ignore);
+        }
+
+        fs.readdir(dir, function(err, files) {
+            if (err) {
+                return callback(err);
+            }
+
+            var next = function() {
+                var filename = files.shift();
+                if (!filename) {
+                    return callback(null, result);
+                }
+
+                var file = path.join(dir, filename);
+
+                if (opts.ignore && self.matchFile(opts.ignore, file)) {
+                    return next();
+                }
+                
+                fs.lstat(file, function(err, stat) {
+                    if (err) {
+                        return callback(err);
+                    }
+
+                    if (stat.isDirectory()) {
+                        return self.scanDir(file, match, opts, function(err, files) {
+                            if (!opts.skipDirs && (!match || fl.matchFile(match, file))) {
+                                result.push({
+                                    name: file,
+                                    relative: path.relative(startDir, file),
+                                    root: startDir,
+                                    path: file,
+                                    isDir: true
+                                });
+                            }
+                            result = result.concat(files);
+                            next();
+                        });
+                    }
+                    else if (stat.isFile() && !opts.skipFiles) {
+
+                        if (match && !fl.matchFile(match, file)) {
+                            //File does not mactch
+                            return next();
+                        }
+
+                        result.push({
+                            name: file,
+                            relative: path.relative(startDir, file),
+                            root: startDir,
+                            path: file,
+                            isDir: false
+                        });
+                    }
+                    next();
+                });
+            };
+
+            next();
+        });
+    };
+
+
+
+    fl.getFileReg = function(pattern) {
+        var reg = {
+            inc: [],
+            exc: []
+        };
+
+        if (typeof pattern === 'object' && !Array.isArray(pattern)) {
+            return pattern;
+        }
+
+        if (typeof pattern === 'string') {
+            pattern = [pattern];
+        }
+
+        if (Array.isArray(pattern)) {
+            var patStart = '((^|\/)',
+                patEnd = '($))';
+
+            pattern.forEach(function(pat) {
+                var dest = reg.inc;
+                if (pat.charAt(0) === '!') {
+                    dest = reg.exc;
+                    pat = pat.substr(1);
+                }
+
+                pat = pat.replace(/\//g, '\\/');
+                pat = pat.replace(/\./g, '\\.');
+                pat = pat.replace(/\*\*/g, '.+');
+                pat = pat.replace(/\*/g, '[^\/]+');
+                dest.push(patStart + pat + patEnd);
+            });
+
+            reg.inc = reg.inc.length ? new RegExp(reg.inc.join('|')) : null;
+            reg.exc = reg.exc.length ? new RegExp(reg.exc.join('|')) : null;
+
+            if (!reg.inc) {
+                reg.inc = /^./; //Include all
+            }
+        }
+
+        return reg;
+    };
+
+    /**
+     * Matches a single file against a FileMatch
+     * @param  {Any} reg   FileMatch pattern
+     * @param  {String} file Filename
+     * @return {Boolean}       Returns true if file matchs
+     */
+    fl.matchFile = function(reg, file) {
+        reg = this.getFileReg(reg);
+        return reg.exc ? reg.inc.test(file) && !reg.exc.test(file) : reg.inc.test(file);
+    };
+
+    /**
+     * Matches files against a FileMatch and returns a filtered array
+     * @param  {Any} reg   File reg as string, array or as a FileMatch object
+     * @param  {Array} files Files array to be filtered
+     * @return {Array}       Returns a filtered array of matching files
+     */
+    fl.matchFiles = function(reg, files) {
+        reg = this.getFileReg(reg);
+
+        return files.filter(function(file) {
+            return reg.exc ? reg.inc.test(file) && !reg.exc.test(file) : reg.inc.test(file);
+        });
+    };
+
     return fl;
 })();
