@@ -6,6 +6,7 @@ module.exports = (function() {
     'use strict';
     
     var fl = {
+        debug: false,
         copy: function(srcFile, destFile, cb) {
             if (typeof cb === 'function') {
                 fs.readFile(srcFile, function(err, stream) {
@@ -25,6 +26,34 @@ module.exports = (function() {
             }
         },
 
+        symlink: function(srcFile, destFile, cb) {
+            var destDir = path.dirname(destFile);
+            if (fl.debug) {
+                console.log('[fl] Symlink %s -> %s in dir %s', srcFile, destFile, destDir);
+            }
+
+            if (typeof cb === 'function') {
+                fs.readFile(srcFile, function(err, stream) {
+                    fs.writeFile(destFile, stream, function() {
+                        cb(null);
+                    });
+                });
+            }
+            else {
+                if (!fl.exists(destDir)) {
+                    fl.mkdir(destDir);
+                }
+
+                if (fl.exists(srcFile)) {
+                    fs.symlinkSync(srcFile, destFile);
+                    return true;
+                }
+                else {
+                    return false;
+                }
+            }
+        },
+
         exists: function(file, cb) {
             if (typeof cb === 'function') {
                 fs.exists(file, cb);
@@ -35,6 +64,10 @@ module.exports = (function() {
         },
 
         mkdir: function(dir, cb) {
+            if (fl.debug) {
+                console.log('[fl] Create dir %s', dir);
+            }
+
             dir = dir.split('/');
             var curDir = '/';
 
@@ -68,12 +101,58 @@ module.exports = (function() {
                     }
 
                     curDir = path.join(curDir, dir.shift());
-                    console.log('curDir', curDir);
                     if (fl.exists(curDir)) {
                         continue;
                     }
 
                     fs.mkdirSync(curDir, 0o755);
+                }
+            }
+        },
+
+        traverse: function(dir, fn, callback) {
+
+        },
+
+        rmdir: function(dir, callback) {
+            if (fl.debug) {
+                console.log('[fl] Remove dir %s', dir);
+            }
+
+            var rmdirSync = function(dir) {
+                var files = fs.readdirSync(dir);
+                files.forEach(function(file) {
+                    var filepath = path.join(dir, file);
+                    var stat = fs.lstatSync(filepath);
+                    if (stat.isSymbolicLink()) {
+                        fs.unlinkSync(filepath);
+                    } else if (stat.isDirectory()) {
+                        rmdirSync(filepath);
+                        fs.rmdirSync(filepath);
+                    }
+                    else {
+                        fs.unlinkSync(filepath);
+                    }
+                });
+            };
+
+            if (typeof cb === 'function') {
+                if (fl.exists(dir)) {
+                    rmdirSync(dir);
+                    return callback(null, true);
+                }
+                else {
+                    return callback(null, false);
+                }
+
+            }
+            else {
+                if (fl.exists(dir)) {
+                    rmdirSync(dir);
+                    return true;
+                }
+                else {
+                    return false;
                 }
             }
         },
@@ -244,7 +323,7 @@ module.exports = (function() {
                         return callback(err);
                     }
 
-                    if (stat.isDirectory()) {
+                    if (stat.isDirectory() || stat.isSymbolicLink()) {
                         return self.scanDir(file, match, opts, function(err, files) {
                             if (!opts.skipDirs && (!match || fl.matchFile(match, file))) {
                                 result.push({
@@ -351,6 +430,8 @@ module.exports = (function() {
             return reg.exc ? reg.inc.test(file) && !reg.exc.test(file) : reg.inc.test(file);
         });
     };
+
+    fl.isDir
 
     return fl;
 })();
