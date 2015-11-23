@@ -272,7 +272,7 @@ module.exports = (function() {
             opts = {};
             match = null;
         }
-        else if (typeof match === 'object' && !match.hasOwnProperty('inc')) {
+        else if (typeof match === 'object' && match !== null && !match.hasOwnProperty('inc')) {
             callback = opts;
             opts = match;
             match = null;
@@ -431,7 +431,34 @@ module.exports = (function() {
         });
     };
 
-    fl.isDir
+    fl.watch = function(dir, match, fn) {
+        if (typeof match === 'function') {
+            fn = match;
+            match = null;
+        }
+
+        fl.scanDir(dir, match, function(err, files) {
+            var watchTimeout;
+            
+            files.forEach(function(file) {
+                if (file.isDir) {
+                    fs.watch(file.name, function(event, filename) {
+                        if (watchTimeout) {
+                            return;
+                        }
+
+                        //Watch fires twice a time. This should fix that behavior
+                        watchTimeout = true;
+                        setTimeout(function() {
+                            watchTimeout = false;
+                        }, 500);
+
+                        fn(event, path.join(file.name, filename));
+                    });
+                }
+            });
+        });
+    };
 
     return fl;
 })();
