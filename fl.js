@@ -166,6 +166,20 @@ module.exports = (function() {
             }
         },
 
+        readJSON: function(file, cb) {
+            if (typeof cb === 'function') {
+                fs.readFile(file, { encoding: 'utf8' }, function(source) {
+                    if (err) {
+                        cb(err);
+                    }
+                });
+            }
+            else {
+                var source = fs.readFileSync(file, { encoding: 'utf8' });
+                return JSON.parse(source);
+            }
+        },
+
         write: function(file, content, cb) {
             var destDir = path.dirname(file);
             if (typeof cb === 'function') {
